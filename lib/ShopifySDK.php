@@ -352,7 +352,11 @@ class ShopifySDK
          * Reset config to it's initial values
          */
         self::$config = array(
-            'ApiVersion' => self::$defaultApiVersion
+            'ApiVersion' => self::$defaultApiVersion,
+            'MaxRetries' => 0,
+            'RetryDelay' => 500,
+            'RetryBackoff' => 'exponential',
+            'RetryStatusCodes' => [429, 500, 502, 503, 504],
         );
 
         foreach ($config as $key => $value) {

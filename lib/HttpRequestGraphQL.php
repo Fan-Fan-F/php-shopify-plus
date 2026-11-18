@@ -26,12 +26,13 @@ class HttpRequestGraphQL extends HttpRequestJson
      * @param array $httpHeaders
      * @param mixed $data
      * @param array|null $variables
+     * @param string|null $operationName
      *
      * @return void
      *
      * @throws SdkException if $data is not a string
      */
-    protected static function prepareRequest($httpHeaders = array(), $data = array(), $variables = null)
+    protected static function prepareRequest($httpHeaders = array(), $data = array(), $variables = null, $operationName = null)
     {
 
         if (is_string($data)) {
@@ -40,19 +41,32 @@ class HttpRequestGraphQL extends HttpRequestJson
             throw new SdkException("Only GraphQL string is allowed!");
         }
 
-        if (!isset($httpHeaders['X-Shopify-Access-Token'])) {
-            throw new SdkException("The GraphQL Admin API requires an access token for making authenticated requests!");
+        // Support AccessToken, private app Password, or StorefrontAccessToken
+        if (!isset($httpHeaders['X-Shopify-Access-Token']) && !isset($httpHeaders['X-Shopify-Storefront-Access-Token'])) {
+            $config = ShopifySDK::$config;
+            if (isset($config['AccessToken'])) {
+                $httpHeaders['X-Shopify-Access-Token'] = $config['AccessToken'];
+            } elseif (isset($config['Password'])) {
+                $httpHeaders['X-Shopify-Access-Token'] = $config['Password'];
+            } elseif (isset($config['StorefrontAccessToken'])) {
+                $httpHeaders['X-Shopify-Storefront-Access-Token'] = $config['StorefrontAccessToken'];
+            } else {
+                throw new SdkException("The GraphQL Admin API requires an access token (or private app Password) for making authenticated requests!");
+            }
         }
 
         self::$httpHeaders = $httpHeaders;
         self::$httpHeaders['Content-type'] = 'application/json';
 
-        if (is_array($variables)) {
-            self::$postDataGraphQL = json_encode(['query' => $data, 'variables' => $variables]);
-        } else {
-            self::$postDataGraphQL = json_encode(['query' => $data]);
+        $payload = ['query' => $data];
+        if (is_array($variables) && !empty($variables)) {
+            $payload['variables'] = $variables;
+        }
+        if (!empty($operationName)) {
+            $payload['operationName'] = $operationName;
         }
 
+        self::$postDataGraphQL = json_encode($payload);
         self::$httpHeaders['Content-Length'] = strlen(self::$postDataGraphQL);
     }
 
@@ -63,12 +77,13 @@ class HttpRequestGraphQL extends HttpRequestJson
      * @param mixed $data
      * @param array $httpHeaders
      * @param array|null $variables
+     * @param string|null $operationName
      *
-     * @return string
+     * @return array
      */
-    public static function post($url, $data, $httpHeaders = array(), $variables = null)
+    public static function post($url, $data, $httpHeaders = array(), $variables = null, $operationName = null)
     {
-        self::prepareRequest($httpHeaders, $data, $variables);
+        self::prepareRequest($httpHeaders, $data, $variables, $operationName);
 
         self::$postDataJSON = self::$postDataGraphQL;
 

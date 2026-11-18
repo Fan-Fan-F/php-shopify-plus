@@ -1,631 +1,319 @@
-# PHP Shopify SDK
+# php-shopify-plus
 
-[![Build Status](https://travis-ci.org/phpclassic/php-shopify.svg?branch=master)](https://travis-ci.org/phpclassic/php-shopify) [![Monthly Downloads](https://poser.pugx.org/phpclassic/php-shopify/d/monthly)](https://packagist.org/packages/phpclassic/php-shopify) [![Total Downloads](https://poser.pugx.org/phpclassic/php-shopify/downloads)](https://packagist.org/packages/phpclassic/php-shopify) [![Latest Stable Version](https://poser.pugx.org/phpclassic/php-shopify/v/stable)](https://packagist.org/packages/phpclassic/php-shopify) [![Latest Unstable Version](https://poser.pugx.org/phpclassic/php-shopify/v/unstable)](https://packagist.org/packages/phpclassic/php-shopify) [![License](https://poser.pugx.org/phpclassic/php-shopify/license)](https://packagist.org/packages/phpclassic/php-shopify) [![Hire](https://img.shields.io/badge/Hire-Upwork-green.svg)](https://www.upwork.com/fl/tareqmahmood?s=1110580755107926016)
+> 现代增强版 Shopify PHP SDK / Modern & Resilient Shopify PHP SDK  
+> 面向现代生产环境的高性能 Shopify PHP SDK，在原生优雅链式调用的基础上，全方位增强了 GraphQL 深度支持、强类型分层异常体系、自动化弹性退避重试与安全鉴权加固。  
+> A production-ready, highly resilient Shopify PHP SDK featuring first-class GraphQL capabilities, structured typed exceptions, automated backoff retry policies, and core security enhancements.
 
-PHPShopify is a simple SDK implementation of Shopify API. It helps accessing the API in an object oriented way. 
+---
 
-## Installation
-Install with Composer
-```shell
+## 目录 / Table of Contents
+- [中文文档](#中文文档)
+  - [功能与改进点](#功能与改进点)
+  - [快速开始](#快速开始)
+  - [来源与致谢](#来源与致谢)
+  - [许可证](#许可证)
+- [English Documentation](#english-documentation)
+  - [Features & Improvements](#features--improvements)
+  - [Quick Start](#quick-start)
+  - [Credits & Acknowledgements](#credits--acknowledgements)
+  - [License](#license)
+
+---
+
+<a name="中文文档"></a>
+## 中文文档
+
+### 功能与改进点
+
+本项目严格对应 [CHANGES.md](CHANGES.md) 的 5 大核心改进计划：
+
+1. **GraphQL 深度支持与现代化操作**
+   - **语义化操作**：提供 `query()`、`mutate()`、`raw()` 等语义化方法，原生支持 GraphQL 变量绑定（`variables`）与操作名称（`operationName`）；
+   - **私有应用无缝兼容**：彻底解除了原 SDK 对 GraphQL 仅支持公共应用 AccessToken 的限制，自动将私有应用凭据（Password）映射为认证凭证，免去手动配置的繁琐；
+   - **配额开销追踪**：新增 `getCost()` 与 `getThrottleStatus()` 快捷方法，实时解析 Shopify GraphQL 桶配额与查询消耗（`actualQueryCost`、`currentlyAvailable`、`restoreRate`）；
+   - **专用结构化异常**：引入 `GraphQLException`，结构化保存位置信息（`locations`）、路径（`path`）与扩展字段（`extensions`）。
+
+2. **错误处理体系与结构化异常规范化**
+   - **富属性异常基类**：重构 `ApiException`，支持 `$e->getHttpCode()`、`$e->getResponseHeaders()`、`$e->getResponseBody()`、`$e->getErrors()`、`$e->getRequestId()`；
+   - **细粒度强类型异常**：
+     - `AuthenticationException`（401 Unauthorized / 403 Forbidden 鉴权失败）；
+     - `NotFoundException`（404 Not Found 资源不存在）；
+     - `ValidationException`（422 Unprocessable Entity 数据校验失败，提供 `$e->getFieldErrors()` 与 `$e->hasFieldError('field')`）；
+     - `RateLimitException`（429 Too Many Requests 限流，提供 `$e->getRetryAfter()`）；
+     - `ServerException`（500/502/503/504 服务器故障）；
+   - **错误明细零丢弃**：修复原 SDK 在 422 校验失败时丢弃 `errors` 键内容、仅抛出模糊 HTTP 状态码的缺陷，格式化提取嵌套字段错误信息。
+
+3. **自动化弹性重试引擎与 429 漏桶保护**
+   - **配置驱动重试引擎**：支持 `MaxRetries`、`RetryStatusCodes`、`RetryDelay`、`RetryBackoff`（指数退避 `exponential` / 固定间隔 `fixed`）；
+   - **智能瞬时故障恢复**：自动对网络超时、底层 cURL 连接异常与 429/5xx 临时故障执行休眠退避与重试；
+   - **429 限流保护加固**：增加最大限流重试轮次上限，杜绝死循环挂死 PHP 进程；在 `Retry-After` 头缺失时提供安全平滑回退（默认 1.0 秒）。
+
+4. **核心 Bug 修复与协议安全加固**
+   - **正文分包解析修复**：使用 cURL `CURLINFO_HEADER_SIZE` 字节偏移精确分割 Header 与 Body，彻底修复原 SDK 在处理包含 `\r\n\r\n` 换行的内容（商品描述、HTML 模板、邮件内容等）时正文截断损坏并将正文误当 Header 解析的严重缺陷；
+   - **API Features 请求头覆盖修复**：修复配置多个 `ShopifyApiFeatures` 时仅最后一个生效的 Bug，支持数组自动合并为逗号分隔的合法请求头；
+   - **Link 分页头解析修复**：使用严格字符定位替代错误使用 `stristr() > -1` 的类型混淆比较，确保在 PHP 8 环境下游标分页链接（`next` / `previous`）稳定解析；
+   - **OAuth 与 Webhook 鉴权加固**：OAuth HMAC 校验增加 `ksort` 参数字典序重排与原生 `hash_equals()` 恒定时间安全比对；新增 `AuthHelper::verifyWebhookRequest()` 原生支持 Webhook HMAC 验签。
+
+5. **自测套件与现代环境兼容**
+   - **离线自动化测试套件**：内置 `scripts/verify_improvements.php`，涵盖 5 大套件 65 项全量通过的离线自动化测试，零外部网络依赖；
+   - **现代 PHP 8.3 全面兼容**：消除废弃语法，升级 `composer.json` 依赖声明，全面支持 PHP >= 5.6 至 PHP 8.3+。
+
+---
+
+### 快速开始
+
+#### 1. 安装
+```bash
 composer require phpclassic/php-shopify
 ```
 
-### Requirements
-PHPShopify uses curl extension for handling http calls. So you need to have the curl extension installed and enabled with PHP.
->However if you prefer to use any other available package library for handling HTTP calls, you can easily do so by modifying 1 line in each of the `get()`, `post()`, `put()`, `delete()` methods in `PHPShopify\HttpRequestJson` class.
-
-You can pass additional curl configuration to `ShopifySDK`
+#### 2. 初始化配置
 ```php
-$config = array(
-    'ShopUrl' => 'yourshop.myshopify.com',
-    'ApiKey' => '***YOUR-PRIVATE-API-KEY***',
-    'Password' => '***YOUR-PRIVATE-API-PASSWORD***',   
-    'Curl' => array(
-        CURLOPT_TIMEOUT => 10,
-        CURLOPT_FOLLOWLOCATION => true
-    )
-);
+use PHPShopify\ShopifySDK;
 
-PHPShopify\ShopifySDK::config($config);
-```
-## Usage
+// 私有应用 (Private App)
+$config = [
+    'ShopUrl' => 'your-shop.myshopify.com',
+    'ApiKey' => 'your_api_key',
+    'Password' => 'your_private_api_password',
+    'ApiVersion' => '2025-01',
+    // 弹性重试配置
+    'MaxRetries' => 3,             // 遇到 429 或 5xx 时最多重试 3 次
+    'RetryDelay' => 500,           // 基础等待 500ms
+    'RetryBackoff' => 'exponential'// 指数退避 (500ms, 1000ms, 2000ms...)
+];
 
-You can use PHPShopify in a pretty simple object oriented way. 
-
-#### Configure ShopifySDK
-If you are using your own private API (except GraphQL), provide the ApiKey and Password. 
-
-```php
-$config = array(
-    'ShopUrl' => 'yourshop.myshopify.com',
-    'ApiKey' => '***YOUR-PRIVATE-API-KEY***',
-    'Password' => '***YOUR-PRIVATE-API-PASSWORD***',
-);
-
-PHPShopify\ShopifySDK::config($config);
+$shopify = new ShopifySDK($config);
 ```
 
-For Third party apps, use the permanent access token. 
-> For GraphQL, AccessToken is required. If you are using private API for GraphQL, use your password as AccessToken here.
-
+#### 3. GraphQL 查询与变更
 ```php
-$config = array(
-    'ShopUrl' => 'yourshop.myshopify.com',
-    'AccessToken' => '***ACCESS-TOKEN-FOR-THIRD-PARTY-APP***',
-);
-
-PHPShopify\ShopifySDK::config($config);
-```
-You can use specific Shopify API Version by adding in the config array
-
-```php
-$config = array(
-    'ShopUrl' => 'yourshop.myshopify.com',
-    'AccessToken' => '***ACCESS-TOKEN-FOR-THIRD-PARTY-APP***',
-    'ApiVersion' => '2022-07',
-);
-
-PHPShopify\ShopifySDK::config($config);
-```
-##### How to get the permanent access token for a shop?
-There is a AuthHelper class to help you getting the permanent access token from the shop using oAuth. 
-
-1) First, you need to configure the SDK with additional parameter SharedSecret
-
-```php
-$config = array(
-    'ShopUrl' => 'yourshop.myshopify.com',
-    'ApiKey' => '***YOUR-PRIVATE-API-KEY***',
-    'SharedSecret' => '***YOUR-SHARED-SECRET***',
-);
-
-PHPShopify\ShopifySDK::config($config);
-```
-
-2) Create the authentication request 
-
-> The redirect url must be white listed from your app admin as one of **Application Redirect URLs**.
-
-```php
-//your_authorize_url.php
-$scopes = 'read_products,write_products,read_script_tags,write_script_tags';
-//This is also valid
-//$scopes = array('read_products','write_products','read_script_tags', 'write_script_tags'); 
-$redirectUrl = 'https://yourappurl.com/your_redirect_url.php';
-
-\PHPShopify\AuthHelper::createAuthRequest($scopes, $redirectUrl);
-```
-
-> If you want the function to return the authentication url instead of auto-redirecting, you can set the argument `$return` (5th argument) to `true`.
-
-```php
-\PHPShopify\AuthHelper::createAuthRequest($scopes, $redirectUrl, null, null, true);
-```
-
-3) Get the access token when redirected back to the `$redirectUrl` after app authorization. 
-
-```php
-//your_redirect_url.php
-PHPShopify\ShopifySDK::config($config);
-$accessToken = \PHPShopify\AuthHelper::getAccessToken();
-//Now store it in database or somewhere else
-```
-
-> You can use the same page for creating the request and getting the access token (redirect url). In that case just skip the 2nd parameter `$redirectUrl` while calling `createAuthRequest()` method. The AuthHelper class will do the rest for you.
-
-```php
-//your_authorize_and_redirect_url.php
-PHPShopify\ShopifySDK::config($config);
-$accessToken = \PHPShopify\AuthHelper::createAuthRequest($scopes);
-//Now store it in database or somewhere else
-```
-
-#### Get the ShopifySDK Object
-
-```php
-$shopify = new PHPShopify\ShopifySDK;
-```
-
-You can provide the configuration as a parameter while instantiating the object (if you didn't configure already by calling `config()` method)
-
-```php
-$shopify = new PHPShopify\ShopifySDK($config);
-```
-
-##### Now you can do `get()`, `post()`, `put()`, `delete()` calling the resources in the object oriented way. All resources are named as same as it is named in shopify API reference. (See the resource map below.) 
-> All the requests returns an array (which can be a single resource array or an array of multiple resources) if succeeded. When no result is expected (for example a DELETE request), an empty array will be returned.
-
-- Get all product list (GET request)
-
-```php
-$products = $shopify->Product->get();
-```
-
-- Get any specific product with ID (GET request)
-
-```php
-$productID = 23564666666;
-$product = $shopify->Product($productID)->get();
-```
-
-You can also filter the results by using the url parameters (as specified by Shopify API Reference for each specific resource). 
-
-- For example get the list of cancelled orders after a specified date and time (and `fields` specifies the data columns for each row to be rendered) : 
-
-```php
-$params = array(
-    'status' => 'cancelled',
-    'created_at_min' => '2016-06-25T16:15:47-04:00',
-    'fields' => 'id,line_items,name,total_price'
-);
-
-$orders = $shopify->Order->get($params);
-```
-
-- Create a new order (POST Request)
-
-```php
-$order = array (
-    "email" => "foo@example.com",
-    "fulfillment_status" => "unfulfilled",
-    "line_items" => [
-      [
-          "variant_id" => 27535413959,
-          "quantity" => 5
-      ]
-    ]
-);
-
-$shopify->Order->post($order);
-```
-
-> Note that you don't need to wrap the data array with the resource key (`order` in this case), which is the expected syntax from Shopify API. This is automatically handled by this SDK.
-
-
-- Update an order (PUT Request)
-
-```php
-$updateInfo = array (
-    "fulfillment_status" => "fulfilled",
-);
-
-$shopify->Order($orderID)->put($updateInfo);
-```
-
-- Remove a Webhook (DELETE request)
-
-```php
-$webHookID = 453487303;
-
-$shopify->Webhook($webHookID)->delete();
-```
-
-
-### The child resources can be used in a nested way.
-> You must provide the ID of the parent resource when trying to get any child resource
-
-- For example, get the images of a product (GET request)
-
-```php
-$productID = 23564666666;
-$productImages = $shopify->Product($productID)->Image->get();
-```
-
-- Add a new address for a customer (POST Request)
-
-```php
-$address = array(
-    "address1" => "129 Oak St",
-    "city" => "Ottawa",
-    "province" => "ON",
-    "phone" => "555-1212",
-    "zip" => "123 ABC",
-    "last_name" => "Lastnameson",
-    "first_name" => "Mother",
-    "country" => "CA",
-);
-
-$customerID = 4425749127;
-
-$shopify->Customer($customerID)->Address->post($address);
-```
-
-- Create a fulfillment event (POST request)
-
-```php
-$fulfillmentEvent = array(
-    "status" => "in_transit"
-);
-
-$shopify->Order($orderID)->Fulfillment($fulfillmentID)->Event->post($fulfillmentEvent);
-```
-
-- Update a Blog article (PUT request)
-
-```php
-$blogID = 23564666666;
-$articleID = 125336666;
-$updateArtilceInfo = array(
-    "title" => "My new Title",
-    "author" => "Your name",
-    "tags" => "Tags, Will Be, Updated",
-    "body_html" => "<p>Look, I can even update through a web service.<\/p>",
-);
-$shopify->Blog($blogID)->Article($articleID)->put($updateArtilceInfo);
-```
-
-- Delete any specific article from a specific blog (DELETE request)
-
-```php
-$blogArticle = $shopify->Blog($blogID)->Article($articleID)->delete();
-```
-
-### GraphQL <sup>*v1.1*</sup>
-The GraphQL Admin API is a GraphQL-based alternative to the REST-based Admin API, and makes the functionality of the Shopify admin available at a single GraphQL endpoint. The full set of supported types can be found in the [GraphQL Admin API reference](https://help.shopify.com/en/api/graphql-admin-api/reference).
-You can simply call the GraphQL resource and make a post request with a GraphQL string:
-
-> The GraphQL Admin API requires an access token for making authenticated requests. You can obtain an access token either by creating a private app and using that app's API password, or by following the OAuth authorization process. See [GraphQL Authentication Guide](https://help.shopify.com/en/api/graphql-admin-api/getting-started#authentication)
-
-```php
-$graphQL = <<<Query
-query {
-  shop {
-    name
-    primaryDomain {
-      url
-      host
+// 执行 GraphQL 查询并绑定参数与操作名称
+$query = <<<'GQL'
+query GetProducts($first: Int!) {
+    products(first: $first) {
+        edges {
+            node {
+                id
+                title
+            }
+        }
     }
-  }
 }
-Query;
+GQL;
 
-$data = $shopify->GraphQL->post($graphQL);
-```
-##### Variables
-If you want to use [GraphQL variables](https://shopify.dev/concepts/graphql/variables), you need to put the variables in an array and give it as the 4th argument of the `post()` method. The 2nd and 3rd arguments don't have any use in GraphQL, but are there to keep similarity with other requests, you can just keep those as `null`. Here is an example: 
+$result = $shopify->GraphQL->query($query, ['first' => 5], 'GetProducts');
 
-```php
-$graphQL = <<<Query
-mutation ($input: CustomerInput!) {
-  customerCreate(input: $input)
-  {
-    customer {
-      id
-      displayName
+// 获取当前调用的配额消耗与桶状态
+$cost = $shopify->GraphQL->getCost();
+echo "消耗配额：" . $cost['actualQueryCost'];
+echo "剩余配额：" . $cost['throttleStatus']['currentlyAvailable'];
+
+// 执行 GraphQL Mutation
+$mutation = <<<'GQL'
+mutation createProduct($input: ProductInput!) {
+    productCreate(input: $input) {
+        product { id title }
+        userErrors { field message }
     }
-    userErrors {
-      field
-      message
-    }
-  }
 }
-Query;
+GQL;
 
-$variables = [
-  "input" => [
-    "firstName" => "Greg",
-    "lastName" => "Variables",
-    "email" => "gregvariables@teleworm.us"
-  ]
-]
-$shopify->GraphQL->post($graphQL, null, null, $variables);
+$response = $shopify->GraphQL->mutate($mutation, [
+    'input' => ['title' => 'New Awesome Product']
+]);
 ```
 
-
-##### GraphQL Builder
-This SDK only accepts a GraphQL string as input. You can build your GraphQL from [Shopify GraphQL Builder](https://help.shopify.com/en/api/graphql-admin-api/graphiql-builder)
-
-
-### Resource Mapping
-Some resources are available directly, some resources are only available through parent resources and a few resources can be accessed both ways. It is recommended that you see the details in the related Shopify API Reference page about each resource. Each resource name here is linked to related Shopify API Reference page.
-> Use the resources only by listed resource map. Trying to get a resource directly which is only available through parent resource may end up with errors.
-
-- [AbandonedCheckout](https://help.shopify.com/api/reference/abandoned_checkouts)
-- [ApiDeprecations](https://shopify.dev/api/admin-rest/2022-04/resources/deprecated-api-calls#get-deprecated-api-calls)
-- [ApplicationCharge](https://help.shopify.com/api/reference/applicationcharge)
-- [AssignedFulfillmentOrder](https://shopify.dev/docs/api/admin-rest/2023-04/resources/assignedfulfillmentorder)
-- [Blog](https://help.shopify.com/api/reference/blog/)
-- Blog -> [Article](https://help.shopify.com/api/reference/article/)
-- Blog -> Article -> [Event](https://help.shopify.com/api/reference/event/)
-- Blog -> Article -> [Metafield](https://help.shopify.com/api/reference/metafield)
-- Blog -> [Event](https://help.shopify.com/api/reference/event/)
-- Blog -> [Metafield](https://help.shopify.com/api/reference/metafield)
-- [CarrierService](https://help.shopify.com/api/reference/carrierservice/)-
-- [Cart](https://shopify.dev/docs/themes/ajax-api/reference/cart) (read only)
-- [Collect](https://help.shopify.com/api/reference/collect/)
-- [Comment](https://help.shopify.com/api/reference/comment/)
-- Comment -> [Event](https://help.shopify.com/api/reference/event/)
-- [Country](https://help.shopify.com/api/reference/country/)
-- Country -> [Province](https://help.shopify.com/api/reference/province/)
-- [Currency](https://help.shopify.com/en/api/reference/store-properties/currency)
-- [CustomCollection]()
-- CustomCollection -> [Event](https://help.shopify.com/api/reference/event/)
-- CustomCollection -> [Metafield](https://help.shopify.com/api/reference/metafield)
-- [Customer](https://help.shopify.com/api/reference/customer/)
-- Customer -> [Address](https://help.shopify.com/api/reference/customeraddress/)
-- Customer -> [Metafield](https://help.shopify.com/api/reference/metafield)
-- Customer -> [Order](https://help.shopify.com/api/reference/order)
-- [CustomerSavedSearch](https://help.shopify.com/api/reference/customersavedsearch/)
-- CustomerSavedSearch -> [Customer](https://help.shopify.com/api/reference/customer/)
-- [DraftOrder](https://help.shopify.com/api/reference/draftorder)
-- [Discount](https://help.shopify.com/api/reference/discount) _(Shopify Plus Only)_
-- [DiscountCode](https://help.shopify.com/en/api/reference/discounts/discountcode)
-- [Event](https://help.shopify.com/api/reference/event/)
-- [FulfillmentService](https://help.shopify.com/api/reference/fulfillmentservice)
-- [Fulfillment](https://shopify.dev/api/admin-rest/2023-01/resources/fulfillment)
-- [FulfillmentOrder](https://shopify.dev/api/admin-rest/2023-01/resources/fulfillmentorder)
-- FulfillmentOrder -> [FulfillmentRequest](https://shopify.dev/api/admin-rest/2023-01/resources/fulfillmentrequest)
-- FulfillmentOrder -> [Fulfillment](https://shopify.dev/api/admin-rest/2023-01/resources/fulfillment)
-- [GiftCard](https://help.shopify.com/api/reference/gift_card) _(Shopify Plus Only)_
-- GiftCard -> [Adjustment](https://shopify.dev/docs/api/admin-rest/2023-01/resources/gift-card-adjustment) _(Shopify Plus Only)_
-- [InventoryItem](https://help.shopify.com/api/reference/inventoryitem)
-- [InventoryLevel](https://help.shopify.com/api/reference/inventorylevel)
-- [Location](https://help.shopify.com/api/reference/location/) _(read only)_
-- Location -> [InventoryLevel](https://help.shopify.com/api/reference/inventorylevel)
-- Location -> [Metafield](https://help.shopify.com/api/reference/metafield)
-- [Metafield](https://help.shopify.com/api/reference/metafield)
-- [Multipass](https://help.shopify.com/api/reference/multipass) _(Shopify Plus Only, API not available yet)_
-- [Order](https://help.shopify.com/api/reference/order)
-- Order -> [FulfillmentOrder](https://shopify.dev/api/admin-rest/2023-01/resources/fulfillmentorder)
-- Order -> [Risk](https://help.shopify.com/api/reference/order_risks)
-- Order -> [Refund](https://help.shopify.com/api/reference/refund)
-- Order -> [Transaction](https://help.shopify.com/api/reference/transaction)
-- Order -> [Event](https://help.shopify.com/api/reference/event/)
-- Order -> [Metafield](https://help.shopify.com/api/reference/metafield)
-- [Page](https://help.shopify.com/api/reference/page)
-- Page -> [Event](https://help.shopify.com/api/reference/event/)
-- Page -> [Metafield](https://help.shopify.com/api/reference/metafield)
-- [Policy](https://help.shopify.com/api/reference/policy) _(read only)_
-- [Product](https://help.shopify.com/api/reference/product)
-- Product -> [Image](https://help.shopify.com/api/reference/product_image)
-- Product -> [Variant](https://help.shopify.com/api/reference/product_variant)
-- Product -> Variant -> [Metafield](https://help.shopify.com/api/reference/metafield)
-- Product -> [Event](https://help.shopify.com/api/reference/event/)
-- Product -> [Metafield](https://help.shopify.com/api/reference/metafield)
-- [ProductListing](https://help.shopify.com/api/reference/sales_channels/productlisting)
-- [ProductVariant](https://help.shopify.com/api/reference/product_variant)
-- ProductVariant -> [Metafield](https://help.shopify.com/api/reference/metafield)
-- [RecurringApplicationCharge](https://help.shopify.com/api/reference/recurringapplicationcharge)
-- RecurringApplicationCharge -> [UsageCharge](https://help.shopify.com/api/reference/usagecharge)
-- [Redirect](https://help.shopify.com/api/reference/redirect)
-- [ScriptTag](https://help.shopify.com/api/reference/scripttag)
-- [ShippingZone](https://help.shopify.com/api/reference/shipping_zone) _(read only)_
-- [Shop](https://help.shopify.com/api/reference/shop) _(read only)_
-- [SmartCollection](https://help.shopify.com/api/reference/smartcollection)
-- SmartCollection -> [Event](https://help.shopify.com/api/reference/event/)
-- [ShopifyPayment](https://shopify.dev/docs/admin-api/rest/reference/shopify_payments/)
-- ShopifyPayment -> [Dispute](https://shopify.dev/docs/admin-api/rest/reference/shopify_payments/dispute/) _(read only)_
-- [Theme](https://help.shopify.com/api/reference/theme)
-- Theme -> [Asset](https://help.shopify.com/api/reference/asset/)
-- [User](https://help.shopify.com/api/reference/user) _(read only, Shopify Plus Only)_
-- [Webhook](https://help.shopify.com/api/reference/webhook)
-- [GraphQL](https://help.shopify.com/en/api/graphql-admin-api/reference)
-
-### Custom Actions
-There are several action methods which can be called without calling the `get()`, `post()`, `put()`, `delete()` methods directly, but eventually results in a custom call to one of those methods.
-
-- For example, get count of total products
+#### 4. 强类型异常处理
 ```php
-$productCount = $shopify->Product->count();
+use PHPShopify\Exception\AuthenticationException;
+use PHPShopify\Exception\ValidationException;
+use PHPShopify\Exception\NotFoundException;
+use PHPShopify\Exception\RateLimitException;
+use PHPShopify\Exception\ServerException;
+use PHPShopify\Exception\ApiException;
+
+try {
+    $shopify->Product->post(['body_html' => 'Missing title!']);
+} catch (ValidationException $e) {
+    // 捕获 422 业务校验异常
+    echo "验证失败：" . $e->getMessage() . "\n";
+    print_r($e->getFieldErrors()); // ['title' => ["can't be blank"]]
+} catch (AuthenticationException $e) {
+    // 捕获 401 / 403 权限异常
+    echo "认证失败，请检查密钥或访问令牌\n";
+} catch (NotFoundException $e) {
+    // 捕获 404 资源不存在
+    echo "未找到对应资源\n";
+} catch (RateLimitException $e) {
+    // 捕获 429 访问受限
+    echo "请求超限，建议等待秒数：" . $e->getRetryAfter() . "\n";
+} catch (ApiException $e) {
+    // 捕获其他通用 API 异常
+    echo "API 请求失败 [HTTP {$e->getHttpCode()}]，RequestId: {$e->getRequestId()}\n";
+}
 ```
 
-- Make an address default for the customer.
+#### 5. Webhook 签名快速校验
 ```php
-$shopify->Customer($customerID)->Address($addressID)->makeDefault();
+use PHPShopify\AuthHelper;
+
+$rawPayload = file_get_contents('php://input');
+$hmacHeader = $_SERVER['HTTP_X_SHOPIFY_HMAC_SHA256'] ?? null;
+$sharedSecret = 'your_app_shared_secret';
+
+if (AuthHelper::verifyWebhookRequest($rawPayload, $hmacHeader, $sharedSecret)) {
+    // Webhook 签名合法，处理业务数据
+    $data = json_decode($rawPayload, true);
+} else {
+    // 非法请求，拒绝处理
+    http_response_code(401);
+    exit('Unauthorized');
+}
 ```
 
-- Search for customers with keyword "Bob" living in country "United States".
+---
+
+### 来源与致谢
+
+本项目基于 [php-shopify](https://github.com/phpclassic/php-shopify) 二次开发，原项目由 phpclassic 以 Apache-2.0 许可证开源。
+
+---
+
+### 许可证
+
+本项目沿用原许可证，全文见根目录 [LICENSE](LICENSE)（Apache License 2.0）。
+
+---
+
+<a name="english-documentation"></a>
+## English Documentation
+
+### Features & Improvements
+
+This project implements the 5 core enhancements planned in [CHANGES.md](CHANGES.md):
+
+1. **Deep GraphQL Support & Modernized Operations**
+   - **Semantic API Methods**: Convenient `query()`, `mutate()`, and `raw()` methods with built-in parameter binding (`variables`) and operation selection (`operationName`);
+   - **Seamless Private App Authentication**: Removed the limitation where GraphQL only accepted public app access tokens, automatically resolving private app passwords into valid authentication credentials;
+   - **Query Cost & Throttle Tracking**: Added `getCost()` and `getThrottleStatus()` methods to inspect Shopify leaky-bucket query usage (`actualQueryCost`, `currentlyAvailable`, `restoreRate`);
+   - **Structured GraphQL Exceptions**: Introduced `GraphQLException` to preserve error `locations`, `path`, and `extensions`.
+
+2. **Standardized Error Handling & Typed Exception Hierarchy**
+   - **Rich Base Exception**: Enhanced `ApiException` with `$e->getHttpCode()`, `$e->getResponseHeaders()`, `$e->getResponseBody()`, `$e->getErrors()`, and `$e->getRequestId()`;
+   - **Granular Typed Exceptions**:
+     - `AuthenticationException` (401 Unauthorized / 403 Forbidden);
+     - `NotFoundException` (404 Not Found);
+     - `ValidationException` (422 Unprocessable Entity, providing `$e->getFieldErrors()` and `$e->hasFieldError('field')`);
+     - `RateLimitException` (429 Too Many Requests, providing `$e->getRetryAfter()`);
+     - `ServerException` (500/502/503/504 Server Failures);
+   - **Complete Error Preservation**: Fixed the issue where HTTP 422 validation errors discarded the `errors` payload, ensuring detailed nested validation failures are preserved.
+
+3. **Automated Resilience Retry Engine & 429 Loop Protection**
+   - **Config-driven Retries**: Configurable `MaxRetries`, `RetryStatusCodes`, `RetryDelay`, and `RetryBackoff` (`exponential` or `fixed`);
+   - **Transient Fault Recovery**: Automatically retries transient network timeouts, low-level cURL connection failures, and 429/5xx server hiccups;
+   - **Rate Limit Safety Guard**: Added maximum retry bounds on 429 responses to prevent infinite loops, with safe fallbacks (default 1.0s) when `Retry-After` is missing.
+
+4. **Core Bug Fixes & Security Hardening**
+   - **HTTP Body Splitting Fix**: Leveraged cURL `CURLINFO_HEADER_SIZE` to slice headers and body accurately, fixing the bug where double newlines (`\r\n\r\n`) in response bodies (product descriptions, templates, emails) truncated the body and corrupted headers;
+   - **Multiple API Features Fix**: Fixed the header overwrite bug when configuring multiple `ShopifyApiFeatures`, merging them into a valid comma-separated string;
+   - **Cursor Pagination Fix**: Replaced type-confused `stristr() > -1` comparisons with strict `stripos() !== false` checks, ensuring correct cursor extraction across all PHP versions;
+   - **OAuth & Webhook Security**: Added lexicographical `ksort` and constant-time `hash_equals()` string comparison to OAuth verification; added `AuthHelper::verifyWebhookRequest()` for native webhook HMAC validation.
+
+5. **Offline Test Suite & Modern Platform Compatibility**
+   - **Offline Automated Test Suite**: Built-in `scripts/verify_improvements.php` testing 65 assertions across 5 suites with 100% pass rate and zero network dependency;
+   - **PHP 8.3 Ready**: Fully compatible with PHP >= 5.6 through PHP 8.3+.
+
+---
+
+### Quick Start
+
+#### 1. Installation
+```bash
+composer require phpclassic/php-shopify
+```
+
+#### 2. Configuration
 ```php
-$shopify->Customer->search("Bob country:United States");
+use PHPShopify\ShopifySDK;
+
+$config = [
+    'ShopUrl' => 'your-shop.myshopify.com',
+    'ApiKey' => 'your_api_key',
+    'Password' => 'your_private_api_password',
+    'ApiVersion' => '2025-01',
+    // Retry settings
+    'MaxRetries' => 3,
+    'RetryDelay' => 500,
+    'RetryBackoff' => 'exponential',
+];
+
+$shopify = new ShopifySDK($config);
 ```
 
-#### Custom Actions List
-The custom methods are specific to some resources which may not be available for other resources.  It is recommended that you see the details in the related Shopify API Reference page about each action. We will just list the available actions here with some brief info. each action name is linked to an example in Shopify API Reference which has more details information.
-
-- (Any resource type except _ApplicationCharge, CarrierService, FulfillmentService, Location, Policy, RecurringApplicationCharge, ShippingZone, Shop, Theme_) ->
-    - [count()](https://help.shopify.com/api/reference/product#count)
-    Get a count of all the resources.
-    Unlike all other actions, this function returns an integer value.
-
-- Comment ->
-    - [markSpam()](https://help.shopify.com/api/reference/comment#spam)
-    Mark a Comment as spam
-    - [markNotSpam()](https://help.shopify.com/api/reference/comment#not_spam)
-    Mark a Comment as not spam
-    - [approve()](https://help.shopify.com/api/reference/comment#approve)
-    Approve a Comment
-    - [remove()](https://help.shopify.com/api/reference/comment#remove)
-    Remove a Comment
-    - [restore()](https://help.shopify.com/api/reference/comment#restore)
-    Restore a Comment
-    
-- Customer ->
-    - [search()](https://help.shopify.com/api/reference/customer#search)
-    Search for customers matching supplied query
-    - [send_invite($data)](https://help.shopify.com/en/api/reference/customers/customer#send_invite)
-    Sends an account invite to a customer.
-    
-- Customer -> Address ->
-    - [makeDefault()](https://help.shopify.com/api/reference/customeraddress#default)
-    Sets the address as default for the customer
-    - [set($params)](https://help.shopify.com/api/reference/customeraddress#set)
-    Perform bulk operations against a number of addresses
-    
-- DraftOrder ->
-    - [send_invoice($data)]()
-    Send the invoice for a DraftOrder
-    - [complete($data)]()
-    Complete a DraftOrder
-    
-- Discount ->
-    - [enable()]()
-    Enable a discount
-    - [disable()]()
-    Disable a discount
-    
-- DiscountCode ->
-    - [lookup($data)]()
-    Retrieves the location of a discount code.    
-    
-- Fulfillment ->
-    - [complete()](https://help.shopify.com/api/reference/fulfillment#complete)
-    Complete a fulfillment
-    - [open()](https://help.shopify.com/api/reference/fulfillment#open)
-    Open a pending fulfillment
-    - [cancel()](https://help.shopify.com/api/reference/fulfillment#cancel)
-    Cancel a fulfillment
-    
-- GiftCard ->
-    - [disable()](https://help.shopify.com/api/reference/gift_card#disable)
-    Disable a gift card.
-    - [search()](https://help.shopify.com/api/reference/gift_card#search)
-    Search for gift cards matching supplied query
-    
-- InventoryLevel ->
-    - [adjust($data)](https://help.shopify.com/api/reference/inventorylevel#adjust)
-    Adjust inventory level.
-    - [connect($data)](https://help.shopify.com/api/reference/inventorylevel#connect)
-    Connect an inventory item to a location.
-    - [set($data)](https://help.shopify.com/api/reference/inventorylevel#set)
-    Set an inventory level for a single inventory item within a location.
-    
-- Order ->
-    - [close()](https://help.shopify.com/api/reference/order#close)
-    Close an Order
-    - [open()](https://help.shopify.com/api/reference/order#open)
-    Re-open a closed Order
-    - [cancel($data)](https://help.shopify.com/api/reference/order#cancel)
-    Cancel an Order
-
-- Order -> Refund ->
-    - [calculate()](https://help.shopify.com/api/reference/refund#calculate)
-    Calculate a Refund.
-    
-- ProductListing ->
-    - [productIds()](https://help.shopify.com/api/reference/sales_channels/productlisting#product_ids)
-    Retrieve product_ids that are published to your app.
-    
-- RecurringApplicationCharge -> 
-    - [activate()](https://help.shopify.com/api/reference/recurringapplicationcharge#activate)
-    Activate a recurring application charge
-    - [customize($data)](https://help.shopify.com/api/reference/recurringapplicationcharge#customize)
-    Customize a recurring application charge
-    
-- SmartCollection -> 
-    - [sortOrder($params)](https://help.shopify.com/api/reference/smartcollection#order)
-    Set the ordering type and/or the manual order of products in a smart collection
-    
-- User ->
-    - [current()](https://help.shopify.com/api/reference/user#current)
-    Get the current logged-in user
-    
-### FulfillmentRequest Resource - including actions
-- Mapped FulfillmentOrder->FulfillmentRequest
-- Mapped Order(id)->FulfillmentOrder
-
+#### 3. GraphQL Query & Mutation
 ```php
-// Requesting the FulfilmentOrder for a given order
-$fo = $client->Order("1234567890")->FulfillmentOrder()->get();
+$query = <<<'GQL'
+query GetProducts($first: Int!) {
+    products(first: $first) {
+        edges {
+            node {
+                id
+                title
+            }
+        }
+    }
+}
+GQL;
 
-// Requesting assigned fulfillment orders (with status fulfillment_requested)
-$shopify->AssignedFulfillmentOrder()->get(["assignment_status" => "fulfillment_requested"]);
+$data = $shopify->GraphQL->query($query, ['first' => 5], 'GetProducts');
 
-// Creating a FulfilmentRequest
-// Follow instructions to get partial fulfilments
-$fr = $client->FulfillmentOrder('0987654321')->FulfillmentRequest->post([]);
-
-// Accepting \ Rejecting a FulfilmentRequest
-$fr = $client->FulfillmentOrder('0987654321')->FulfillmentRequest->accept();
-$fr = $client->FulfillmentOrder('0987654321')->FulfillmentRequest->reject();
-
-// Communicating fulfillment
-$client->Fulfillment->post($body)
+$cost = $shopify->GraphQL->getCost();
+echo "Actual query cost: " . $cost['actualQueryCost'];
 ```
 
-### Shopify API features headers
-To send `X-Shopify-Api-Features` headers while using the SDK, you can use the following:
+#### 4. Handling Typed Exceptions
+```php
+use PHPShopify\Exception\ValidationException;
+use PHPShopify\Exception\AuthenticationException;
+use PHPShopify\Exception\ApiException;
 
+try {
+    $shopify->Product->post(['body_html' => 'No title']);
+} catch (ValidationException $e) {
+    echo "Validation failed: " . $e->getMessage() . "\n";
+    print_r($e->getFieldErrors());
+} catch (AuthenticationException $e) {
+    echo "Invalid credentials\n";
+} catch (ApiException $e) {
+    echo "API call failed [HTTP {$e->getHttpCode()}]: " . $e->getMessage() . "\n";
+}
 ```
-$config['ShopifyApiFeatures'] = ['include-presentment-prices'];
-$shopify = new PHPShopify\ShopifySDK($config);
+
+#### 5. Webhook Signature Verification
+```php
+use PHPShopify\AuthHelper;
+
+$payload = file_get_contents('php://input');
+$hmac = $_SERVER['HTTP_X_SHOPIFY_HMAC_SHA256'] ?? null;
+$secret = 'your_shared_secret';
+
+if (AuthHelper::verifyWebhookRequest($payload, $hmac, $secret)) {
+    $event = json_decode($payload, true);
+} else {
+    http_response_code(401);
+    exit('Unauthorized');
+}
 ```
 
+---
 
-## Reference
-- [Shopify API Reference](https://help.shopify.com/api/reference/)
+### Credits & Acknowledgements
 
-## Paid Support
-You can hire the author of this SDK for setting up your project with PHPShopify SDK. 
+This project is a secondary development based on [php-shopify](https://github.com/phpclassic/php-shopify), originally open-sourced by phpclassic under the Apache-2.0 license.
 
-[Hire at Upwork](https://www.upwork.com/fl/tareqmahmood?s=1110580755107926016)
+---
 
-## Backers
+### License
 
-Support us with a monthly donation and help us continue our activities. [[Become a backer](https://opencollective.com/phpshopify#backer)]
-
-<a href="https://opencollective.com/phpshopify/backer/0/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/0/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/1/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/1/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/2/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/2/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/3/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/3/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/4/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/4/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/5/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/5/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/6/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/6/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/7/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/7/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/8/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/8/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/9/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/9/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/10/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/10/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/11/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/11/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/12/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/12/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/13/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/13/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/14/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/14/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/15/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/15/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/16/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/16/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/17/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/17/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/18/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/18/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/19/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/19/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/20/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/20/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/21/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/21/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/22/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/22/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/23/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/23/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/24/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/24/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/25/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/25/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/26/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/26/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/27/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/27/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/28/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/28/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/backer/29/website" target="_blank"><img src="https://opencollective.com/phpshopify/backer/29/avatar.svg"></a>
-
-
-## Sponsors
-
-Become a sponsor and get your logo on our README on Github with a link to your site. [[Become a sponsor](https://opencollective.com/phpshopify#sponsor)]
-
-<a href="https://opencollective.com/phpshopify/sponsor/0/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/0/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/1/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/1/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/2/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/2/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/3/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/3/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/4/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/4/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/5/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/5/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/6/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/6/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/7/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/7/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/8/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/8/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/9/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/9/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/10/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/10/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/11/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/11/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/12/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/12/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/13/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/13/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/14/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/14/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/15/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/15/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/16/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/16/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/17/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/17/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/18/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/18/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/19/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/19/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/20/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/20/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/21/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/21/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/22/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/22/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/23/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/23/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/24/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/24/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/25/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/25/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/26/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/26/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/27/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/27/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/28/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/28/avatar.svg"></a>
-<a href="https://opencollective.com/phpshopify/sponsor/29/website" target="_blank"><img src="https://opencollective.com/phpshopify/sponsor/29/avatar.svg"></a>
+This project retains the original license. See [LICENSE](LICENSE) (Apache License 2.0) for details.

@@ -80,17 +80,51 @@ class AuthHelper
         if (isset($data['signature'])) {
             unset($data['signature']);
         }
+        // Shopify requires parameters to be lexicographically sorted by key
+        ksort($data);
+
         //Create data string for the remaining url parameters
         $dataString = self::buildQueryString($data);
 
         $realHmac = hash_hmac('sha256', $dataString, $sharedSecret);
 
-        //hash the values before comparing (to prevent time attack)
-        if(md5($realHmac) === md5($hmac)) {
-            return true;
-        } else {
-            return false;
+        // Timing-safe constant-time string comparison
+        return hash_equals($realHmac, $hmac);
+    }
+
+    /**
+     * Verify if the webhook request is authentically sent from Shopify
+     *
+     * @param string $rawPayload Raw request body
+     * @param string|null $hmacHeader X-Shopify-Hmac-Sha256 header value. If null, reads from $_SERVER['HTTP_X_SHOPIFY_HMAC_SHA256']
+     * @param string|null $sharedSecret Shopify SharedSecret / API secret key. If null, reads from ShopifySDK::$config['SharedSecret']
+     *
+     * @throws SdkException if SharedSecret is not configured or HMAC header is missing
+     *
+     * @return bool
+     */
+    public static function verifyWebhookRequest($rawPayload, $hmacHeader = null, $sharedSecret = null)
+    {
+        if ($sharedSecret === null) {
+            if (!isset(ShopifySDK::$config['SharedSecret'])) {
+                throw new SdkException("Please provide SharedSecret while configuring the SDK client or pass it to verifyWebhookRequest.");
+            }
+            $sharedSecret = ShopifySDK::$config['SharedSecret'];
         }
+
+        if ($hmacHeader === null) {
+            if (isset($_SERVER['HTTP_X_SHOPIFY_HMAC_SHA256'])) {
+                $hmacHeader = $_SERVER['HTTP_X_SHOPIFY_HMAC_SHA256'];
+            } elseif (isset($_SERVER['X-Shopify-Hmac-Sha256'])) {
+                $hmacHeader = $_SERVER['X-Shopify-Hmac-Sha256'];
+            } else {
+                throw new SdkException("Shopify HMAC header (HTTP_X_SHOPIFY_HMAC_SHA256) not found.");
+            }
+        }
+
+        $calculatedHmac = base64_encode(hash_hmac('sha256', $rawPayload, $sharedSecret, true));
+
+        return hash_equals($calculatedHmac, $hmacHeader);
     }
 
     /**

@@ -146,13 +146,17 @@ abstract class ShopifyResource
 
         if (isset($config['AccessToken'])) {
             $this->httpHeaders['X-Shopify-Access-Token'] = $config['AccessToken'];
-        } elseif (!isset($config['ApiKey']) || !isset($config['Password'])) {
+        } elseif (isset($config['Password'])) {
+            $this->httpHeaders['X-Shopify-Access-Token'] = $config['Password'];
+        } elseif (!isset($config['ApiKey'])) {
             throw new SdkException("Either AccessToken or ApiKey+Password Combination (in case of private API) is required to access the resources. Please check SDK configuration!");
         }
 
         if (isset($config['ShopifyApiFeatures'])) {
-            foreach($config['ShopifyApiFeatures'] as $apiFeature) {
-                $this->httpHeaders['X-Shopify-Api-Features'] = $apiFeature;
+            if (is_array($config['ShopifyApiFeatures'])) {
+                $this->httpHeaders['X-Shopify-Api-Features'] = implode(', ', $config['ShopifyApiFeatures']);
+            } else {
+                $this->httpHeaders['X-Shopify-Api-Features'] = (string)$config['ShopifyApiFeatures'];
             }
         }
     }
@@ -560,10 +564,10 @@ abstract class ShopifyResource
         }
 
         if(!empty($responseHeaders['link'])) {
-            if (stristr($responseHeaders['link'], '; rel="'.$type.'"') > -1) {
+            if (stripos($responseHeaders['link'], '; rel="'.$type.'"') !== false) {
                 $headerLinks = explode(',', $responseHeaders['link']);
                 foreach ($headerLinks as $headerLink) {
-                    if (stristr($headerLink, '; rel="'.$type.'"') === -1) {
+                    if (stripos($headerLink, '; rel="'.$type.'"') === false) {
                         continue;
                     }
 

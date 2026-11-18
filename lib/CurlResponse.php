@@ -9,33 +9,60 @@ class CurlResponse
     /** @var string */
     private $body;
 
-    public function __construct($response)
+    public function __construct($response, $headerSize = null)
     {
-        $this->parse($response);
+        $this->parse($response, $headerSize);
     }
 
     /**
      * @param string $response
+     * @param int|null $headerSize
      */
-    private function parse($response)
+    private function parse($response, $headerSize = null)
     {
-        $response = \explode("\r\n\r\n", $response);
-        if (\count($response) > 1) {
-            // We want the last two parts
-            $response = \array_slice($response, -2, 2);
-            list($headers, $body) = $response;
-            foreach (\explode("\r\n", $headers) as $header) {
-                $pair = \explode(': ', $header, 2);
-                if (isset($pair[1])) {
-                    $headerKey = strtolower($pair[0]);
-                    $this->headers[$headerKey] = $pair[1];
-                }
-            }
-        } else {
-            $body = $response[0];
+        if ($headerSize !== null && $headerSize >= 0) {
+            $headers = substr($response, 0, $headerSize);
+            $body = substr($response, $headerSize);
+            $this->parseHeaders($headers);
+            $this->body = $body !== false ? $body : '';
+            return;
         }
 
-        $this->body = $body;
+        $parts = \explode("\r\n\r\n", $response);
+        if (\count($parts) > 1) {
+            $headerBlocks = [];
+            $bodyParts = [];
+            $inHeaders = true;
+            for ($i = 0; $i < count($parts); $i++) {
+                if ($inHeaders && (strpos($parts[$i], 'HTTP/') === 0 || count($headerBlocks) === 0)) {
+                    $headerBlocks[] = $parts[$i];
+                } else {
+                    $inHeaders = false;
+                    $bodyParts[] = $parts[$i];
+                }
+            }
+            $lastHeader = end($headerBlocks);
+            $this->parseHeaders($lastHeader);
+            $this->body = implode("\r\n\r\n", $bodyParts);
+        } else {
+            $this->body = $response;
+        }
+    }
+
+    /**
+     * Parse raw headers string into key-value map
+     *
+     * @param string $headers
+     */
+    private function parseHeaders($headers)
+    {
+        foreach (\explode("\r\n", $headers) as $header) {
+            $pair = \explode(': ', $header, 2);
+            if (isset($pair[1])) {
+                $headerKey = strtolower($pair[0]);
+                $this->headers[$headerKey] = $pair[1];
+            }
+        }
     }
 
     /**

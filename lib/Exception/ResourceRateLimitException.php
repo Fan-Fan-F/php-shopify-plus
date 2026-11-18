@@ -2,7 +2,7 @@
 
 namespace PHPShopify\Exception;
 
-class ResourceRateLimitException extends ApiException
+class ResourceRateLimitException extends RateLimitException
 {
 
 }

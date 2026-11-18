@@ -178,13 +178,21 @@ class CurlRequest
      */
     protected static function processRequest($ch)
     {
+        $rateLimitRetries = 0;
+        $maxRateLimitRetries = 5;
+
         # Check for 429 leaky bucket error
         while (1) {
             $output   = curl_exec($ch);
-            $response = new CurlResponse($output);
+            $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+            $response = new CurlResponse($output, $headerSize);
 
             self::$lastHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             if (self::$lastHttpCode != 429) {
+                break;
+            }
+
+            if ($rateLimitRetries >= $maxRateLimitRetries) {
                 break;
             }
 
@@ -200,11 +208,17 @@ class CurlRequest
             $retryAfter = $response->getHeader('Retry-After');
 
             if ($retryAfter === null) {
-                break;
+                $retryAfter = 1.0;
             }
 
-            self::$totalRetrySleepTime += (float)$retryAfter;
-            sleep((float)$retryAfter);
+            $sleepSeconds = (float)$retryAfter;
+            if ($sleepSeconds <= 0) {
+                $sleepSeconds = 0.5;
+            }
+
+            self::$totalRetrySleepTime += $sleepSeconds;
+            $rateLimitRetries++;
+            usleep((int)($sleepSeconds * 1000000));
         }
 
         if (curl_errno($ch)) {
